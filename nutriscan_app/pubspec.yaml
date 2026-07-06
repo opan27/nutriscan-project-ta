@@ -1,0 +1,52 @@
+name: nutriscan
+description: Aplikasi deteksi nutrisi makanan dengan AI
+
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # HTTP & API
+  dio: ^5.3.2
+  pretty_dio_logger: ^1.3.1
+
+  # State Management
+  flutter_riverpod: ^2.4.0
+
+  # Storage lokal
+  shared_preferences: ^2.2.2
+  flutter_secure_storage: ^9.0.0
+
+  # Kamera & Gambar
+  image_picker: ^1.0.4
+
+  # Navigasi
+  go_router: ^12.1.1
+
+  # UI Components
+  fl_chart: ^0.65.0
+  percent_indicator: ^4.2.3
+  shimmer: ^3.0.0
+
+  # Utilitas
+  intl: ^0.18.1
+  equatable: ^2.0.5
+
+  cupertino_icons: ^1.0.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/icons/
+    - assets/animations/
