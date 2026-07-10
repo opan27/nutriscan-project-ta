@@ -128,19 +128,21 @@ const uploadAndScan = async (req, res) => {
         ]
       );
 
-      // SIMPAN AKURASI
+      // SIMPAN AKURASI (image_path untuk grouping multi-object per foto)
       await db.query(
         `INSERT INTO model_accuracy_logs
           (
             scan_id,
             detected_label,
-            confidence_pct
+            confidence_pct,
+            image_path
           )
-         VALUES (?, ?, ?)`,
+         VALUES (?, ?, ?, ?)`,
         [
           scanResult.insertId,
           label,
-          (confidence * 100).toFixed(2)
+          (confidence * 100).toFixed(2),
+          imagePath
         ]
       );
 

@@ -117,10 +117,12 @@ CREATE TABLE IF NOT EXISTS reminders (
 CREATE TABLE IF NOT EXISTS model_accuracy_logs (
   id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   scan_id         INT UNSIGNED,
-  detected_label  VARCHAR(100) NOT NULL,
-  actual_label    VARCHAR(100) COMMENT 'Diisi user jika hasil salah',
+  detected_label  VARCHAR(100) COMMENT 'NULL = objek tidak terdeteksi (false negative)',
+  actual_label    VARCHAR(100) COMMENT 'Label sebenarnya (ground truth)',
   confidence_pct  DECIMAL(5,2),
-  is_correct      TINYINT(1) COMMENT '1=benar, 0=salah, NULL=belum diverifikasi',
+  is_correct      TINYINT(1) COMMENT '1=benar, 0=salah (kompat lama)',
+  verdict         ENUM('correct','wrong','missed') COMMENT 'Hasil verifikasi multi-object: benar/salah deteksi/tidak terdeteksi',
+  image_path      VARCHAR(255) COMMENT 'Untuk mengelompokkan objek per foto (multi-object)',
   logged_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (scan_id) REFERENCES scan_history(id) ON DELETE SET NULL
 );
