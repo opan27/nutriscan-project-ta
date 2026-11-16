@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../data/scan_repository.dart';
 import '../../data/scan_model.dart';
+import '../../../../core/api/api_client.dart';
 import '../../../../core/theme/app_theme.dart';
 
 class ScanScreen extends StatefulWidget {
@@ -24,8 +25,14 @@ class _ScanScreenState extends State<ScanScreen> {
   String? _error;
 
   Future<void> _pickImage(ImageSource source) async {
-    final picked = await _picker.pickImage(source: source, imageQuality: 85);
-    if (picked == null) return;
+    // Perkecil foto sebelum upload: YOLO hanya butuh 640x640, foto penuh 3-5 MB memperlambat scan
+    final picked = await _picker.pickImage(
+      source: source,
+      maxWidth: 1280,
+      maxHeight: 1280,
+      imageQuality: 80,
+    );
+    if (picked == null || !mounted) return;
     setState(() {
       _image = File(picked.path);
       _result = null;
@@ -41,17 +48,26 @@ class _ScanScreenState extends State<ScanScreen> {
     });
     try {
       final result = await _repo.scanFood(path);
+      if (!mounted) return;
       setState(() {
         _result = result;
       });
     } catch (e) {
+      // User bisa pindah tab saat scan masih berjalan
+      if (!mounted) return;
       setState(() {
-        _error = 'Gagal memindai. Coba lagi dengan foto yang lebih jelas.';
+        // Tampilkan pesan dari server, mis. "Tidak ada makanan terdeteksi"
+        _error = ApiClient.errorMessage(
+          e,
+          'Gagal memindai. Coba lagi dengan foto yang lebih jelas.',
+        );
       });
     } finally {
-      setState(() {
-        _loading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
     }
   }
 
@@ -334,12 +350,30 @@ class _MultiScanResultCard extends StatelessWidget {
 // ─────────────────────────────────────────────
 
 class _FoodNutritionCard extends StatelessWidget {
-  final dynamic food; // FoodItem from ScanModel
+  final ScanFood food;
 
   const _FoodNutritionCard({required this.food});
 
+  static Color _parseHex(String hex, Color fallback) {
+    final h = hex.replaceFirst('#', '');
+    final v = int.tryParse(h.length == 6 ? 'FF$h' : h, radix: 16);
+    return v == null ? fallback : Color(v);
+  }
+
+  IconData get _warningIcon {
+    switch (food.warning.level) {
+      case 'red':
+        return Icons.cancel_outlined;
+      case 'yellow':
+        return Icons.warning_amber_rounded;
+      default:
+        return Icons.check_circle_outline;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final warnColor = _parseHex(food.warning.color, AppColors.primary);
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 12),
@@ -382,8 +416,64 @@ class _FoodNutritionCard extends StatelessWidget {
                   ),
                 ),
               ),
+              // Badge peringatan kesehatan (sistem pakar)
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: warnColor.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: warnColor.withOpacity(0.5)),
+                ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(_warningIcon, size: 14, color: warnColor),
+                  const SizedBox(width: 4),
+                  Text(
+                    food.warning.label,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: warnColor,
+                    ),
+                  ),
+                ]),
+              ),
             ],
           ),
+
+          if (food.warning.reasons.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: warnColor.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: food.warning.reasons
+                    .map((r) => Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.circle, size: 6, color: warnColor),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(r,
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        height: 1.4,
+                                        color: Colors.grey.shade800)),
+                              ),
+                            ],
+                          ),
+                        ))
+                    .toList(),
+              ),
+            ),
+          ],
 
           const SizedBox(height: 4),
           Padding(
@@ -441,7 +531,7 @@ class _FoodNutritionCard extends StatelessWidget {
 // ─────────────────────────────────────────────
 
 class _TotalNutritionCard extends StatelessWidget {
-  final dynamic nutrition; // NutritionInfo from ScanModel
+  final NutritionData nutrition;
 
   const _TotalNutritionCard({required this.nutrition});
 

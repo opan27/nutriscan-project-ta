@@ -6,6 +6,15 @@ const addLog = async (req, res) => {
   if (!food_id || !meal_type) {
     return res.status(400).json({ success: false, message: 'food_id dan meal_type wajib diisi' });
   }
+  if (!['breakfast', 'lunch', 'dinner', 'snack'].includes(meal_type)) {
+    return res.status(400).json({ success: false, message: 'meal_type tidak valid' });
+  }
+  const portion = portion_g === undefined || portion_g === null || portion_g === ''
+    ? 100
+    : parseFloat(portion_g);
+  if (!Number.isFinite(portion) || portion <= 0 || portion > 5000) {
+    return res.status(400).json({ success: false, message: 'Porsi harus antara 1 dan 5000 gram' });
+  }
 
   try {
     const [foods] = await db.query('SELECT * FROM foods WHERE id = ?', [food_id]);
@@ -14,7 +23,7 @@ const addLog = async (req, res) => {
     }
 
     const food   = foods[0];
-    const factor = (parseFloat(portion_g) || 100) / 100;
+    const factor = portion / 100;
 
     const [result] = await db.query(
       `INSERT INTO meal_logs
@@ -22,7 +31,7 @@ const addLog = async (req, res) => {
           carbs_consumed, protein_consumed, fat_consumed, sugar_consumed)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        req.user.id, food_id, meal_type, portion_g || 100,
+        req.user.id, food_id, meal_type, portion,
         (food.calories      * factor).toFixed(2),
         (food.carbohydrates * factor).toFixed(2),
         (food.protein       * factor).toFixed(2),
@@ -93,10 +102,13 @@ const getTodayLog = async (req, res) => {
 // DELETE /api/meal-log/:id
 const deleteLog = async (req, res) => {
   try {
-    await db.query(
+    const [result] = await db.query(
       'DELETE FROM meal_logs WHERE id = ? AND user_id = ?',
       [req.params.id, req.user.id]
     );
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ success: false, message: 'Log tidak ditemukan' });
+    }
     return res.json({ success: true, message: 'Log dihapus' });
   } catch (err) {
     return res.status(500).json({ success: false, message: 'Server error' });

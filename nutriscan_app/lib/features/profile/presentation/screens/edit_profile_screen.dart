@@ -1,9 +1,11 @@
 // lib/features/profile/presentation/screens/edit_profile_screen.dart
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/api/api_client.dart';
 import '../../../../core/constants/api_constants.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/health_validators.dart';
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
@@ -72,17 +74,18 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final condStr = _conditions.isEmpty ? 'none' : _conditions.join(',');
     try {
       await _client.post(ApiConstants.healthProfile, data: {
-        'weight_kg': double.tryParse(_weightCtrl.text),
-        'height_cm': double.tryParse(_heightCtrl.text),
-        'age': int.tryParse(_ageCtrl.text),
+        'weight_kg': HealthValidators.parseNum(_weightCtrl.text),
+        'height_cm': HealthValidators.parseNum(_heightCtrl.text),
+        'age': HealthValidators.parseInt(_ageCtrl.text),
         'gender': _gender,
         'activity_level': _activity,
         'medical_condition': condStr,
-        'blood_sugar_fasting': _sugarCtrl.text.isNotEmpty
-            ? double.tryParse(_sugarCtrl.text)
+        'blood_sugar_fasting': _sugarCtrl.text.trim().isNotEmpty
+            ? HealthValidators.parseNum(_sugarCtrl.text)
             : null,
-        'blood_pressure_systolic':
-            _bpCtrl.text.isNotEmpty ? int.tryParse(_bpCtrl.text) : null,
+        'blood_pressure_systolic': _bpCtrl.text.trim().isNotEmpty
+            ? HealthValidators.parseInt(_bpCtrl.text)
+            : null,
       });
 
       if (mounted) {
@@ -96,7 +99,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Gagal: $e'), backgroundColor: AppColors.red),
+          SnackBar(
+              content: Text(ApiClient.errorMessage(e, 'Gagal menyimpan profil')),
+              backgroundColor: AppColors.red),
         );
       setState(() => _loading = false);
     }
@@ -122,10 +127,15 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       controller: _weightCtrl,
                       keyboardType:
                           const TextInputType.numberWithOptions(decimal: true),
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))
+                      ],
+                      autovalidateMode: AutovalidateMode.onUserInteraction,
                       decoration: const InputDecoration(
-                          labelText: 'Berat Badan', suffixText: 'kg'),
+                          labelText: 'Berat Badan', suffixText: 'kg',
+                          errorMaxLines: 2),
                       validator: (v) =>
-                          (v?.isEmpty ?? true) ? 'Wajib diisi' : null,
+                          HealthValidators.weight(v, required: true),
                     )),
                     const SizedBox(width: 12),
                     Expanded(
@@ -133,20 +143,26 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       controller: _heightCtrl,
                       keyboardType:
                           const TextInputType.numberWithOptions(decimal: true),
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))
+                      ],
+                      autovalidateMode: AutovalidateMode.onUserInteraction,
                       decoration: const InputDecoration(
-                          labelText: 'Tinggi Badan', suffixText: 'cm'),
+                          labelText: 'Tinggi Badan', suffixText: 'cm',
+                          errorMaxLines: 2),
                       validator: (v) =>
-                          (v?.isEmpty ?? true) ? 'Wajib diisi' : null,
+                          HealthValidators.height(v, required: true),
                     )),
                   ]),
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _ageCtrl,
                     keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
                     decoration: const InputDecoration(
                         labelText: 'Usia', suffixText: 'tahun'),
-                    validator: (v) =>
-                        (v?.isEmpty ?? true) ? 'Wajib diisi' : null,
+                    validator: (v) => HealthValidators.age(v, required: true),
                   ),
                   const SizedBox(height: 12),
                   const Text('Jenis Kelamin',
@@ -204,21 +220,31 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     controller: _sugarCtrl,
                     keyboardType:
                         const TextInputType.numberWithOptions(decimal: true),
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))
+                    ],
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
                     decoration: const InputDecoration(
                       labelText: 'Gula darah puasa terakhir',
                       suffixText: 'mg/dL',
                       hintText: 'contoh: 126',
+                      errorMaxLines: 2,
                     ),
+                    validator: HealthValidators.bloodSugar,
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _bpCtrl,
                     keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
                     decoration: const InputDecoration(
                       labelText: 'Tekanan darah sistolik terakhir',
                       suffixText: 'mmHg',
                       hintText: 'contoh: 140',
+                      errorMaxLines: 2,
                     ),
+                    validator: HealthValidators.systolic,
                   ),
                   const SizedBox(height: 28),
                   ElevatedButton(

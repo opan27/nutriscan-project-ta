@@ -1,5 +1,6 @@
 // lib/core/router/app_router.dart
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -92,8 +93,16 @@ class _SplashScreenState extends State<SplashScreen> {
       if (mounted) {
         context.go(done ? '/home' : '/onboarding');
       }
+    } on DioException catch (e) {
+      if (!mounted) return;
+      // Token expired/tidak valid → wajib login ulang (token sudah dihapus interceptor)
+      if (e.response?.statusCode == 401) {
+        context.go('/login');
+      } else {
+        // Gagal karena offline / server mati → tetap ke home
+        context.go('/home');
+      }
     } catch (_) {
-      // Kalau gagal hit API (misal offline), langsung ke home
       if (mounted) context.go('/home');
     }
   }

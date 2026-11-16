@@ -1,0 +1,113 @@
+
+services:
+
+  # ─── 1. MySQL Database ───────────────────────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: nutriscan-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-nutriscan123}
+      MYSQL_DATABASE: nutriscan_db
+      MYSQL_USER: ${DB_USER:-nutriscan}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-nutriscan123}
+    ports:
+      - "127.0.0.1:3306:3306"   # hanya bisa diakses dari server sendiri
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./nutriscan-backend/database/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    networks:
+      - nutriscan-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD:-nutriscan123}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ─── 2. YOLO AI Service (Flask + Ultralytics) ────────────────────────────────
+  yolo-service:
+    image: opanipin/nutriscan-yolo:${TAG:-1.0}
+    build:
+      context: ./nutriscan-backend
+      dockerfile: Dockerfile.yolo
+    container_name: nutriscan-yolo
+    restart: always
+    ports:
+      - "127.0.0.1:5001:5001"   # AI service hanya diakses backend
+    volumes:
+      - uploads_data:/app/uploads
+    networks:
+      - nutriscan-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s  # YOLO model loading butuh waktu
+
+  # ─── 3. Node.js Backend (Express API) ────────────────────────────────────────
+  backend:
+    image: opanipin/nutriscan-backend:${TAG:-1.0}
+    build:
+      context: ./nutriscan-backend
+      dockerfile: Dockerfile
+    container_name: nutriscan-backend
+    restart: always
+    env_file:
+      - .env.docker
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      YOLO_SERVICE_URL: http://yolo-service:5001
+    ports:
+      - "3000:3000"
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+      yolo-service:
+        condition: service_healthy
+    networks:
+      - nutriscan-net
+
+  # ─── 4. Admin Dashboard (React → Nginx) ──────────────────────────────────────
+  admin:
+    image: opanipin/nutriscan-admin:${TAG:-1.0}
+    build:
+      context: ./nutriscan-admin
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE: ""  # kosong = Nginx handle proxy /api
+    container_name: nutriscan-admin
+    restart: always
+    ports:
+      - "8000:80"
+    depends_on:
+      - backend
+    networks:
+      - nutriscan-net
+
+  # ─── 5. Adminer (Database GUI) ───────────────────────────────────────────────
+  adminer:
+    image: adminer
+    container_name: nutriscan-adminer
+    restart: always
+    ports:
+      - "127.0.0.1:8080:8080"   # Adminer: akses via SSH tunnel
+    networks:
+      - nutriscan-net
+    depends_on:
+      - mysql
+
+# ─── Volumes ──────────────────────────────────────────────────────────────────
+volumes:
+  mysql_data:
+    driver: local
+  uploads_data:
+    driver: local
+
+# ─── Network ──────────────────────────────────────────────────────────────────
+networks:
+  nutriscan-net:
+    driver: bridge

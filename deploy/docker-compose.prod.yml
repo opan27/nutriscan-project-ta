@@ -1,0 +1,89 @@
+# NutriScan - compose untuk VPS (hanya pull image dari Docker Hub, tanpa build)
+# Isi folder di VPS: docker-compose.prod.yml, .env.docker, schema.sql
+# Ganti USERNAME dengan username Docker Hub.
+# WAJIB pakai --env-file agar ${DB_PASSWORD} dkk terbaca:
+#   docker compose --env-file .env.docker -f docker-compose.prod.yml up -d
+
+services:
+
+  mysql:
+    image: mysql:8.0
+    container_name: nutriscan-mysql
+    restart: always
+    env_file: .env.docker
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_DATABASE: nutriscan_db
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "127.0.0.1:3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    networks: [nutriscan-net]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  yolo-service:
+    image: opanipin/nutriscan-yolo:1.0
+    container_name: nutriscan-yolo
+    restart: always
+    ports:
+      - "127.0.0.1:5001:5001"
+    volumes:
+      - uploads_data:/app/uploads
+    networks: [nutriscan-net]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  backend:
+    image: opanipin/nutriscan-backend:1.0
+    container_name: nutriscan-backend
+    restart: always
+    env_file: .env.docker
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      YOLO_SERVICE_URL: http://yolo-service:5001
+    ports:
+      - "3000:3000"
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      mysql: {condition: service_healthy}
+      yolo-service: {condition: service_healthy}
+    networks: [nutriscan-net]
+
+  admin:
+    image: opanipin/nutriscan-admin:1.0
+    container_name: nutriscan-admin
+    restart: always
+    ports:
+      - "8000:80"
+    depends_on: [backend]
+    networks: [nutriscan-net]
+
+  adminer:
+    image: adminer
+    container_name: nutriscan-adminer
+    restart: always
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks: [nutriscan-net]
+    depends_on: [mysql]
+
+volumes:
+  mysql_data:
+  uploads_data:
+
+networks:
+  nutriscan-net:
+    driver: bridge

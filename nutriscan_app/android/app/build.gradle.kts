@@ -8,7 +8,8 @@ plugins {
 android {
     namespace = "com.nutriscan.nutriscan"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    // Plugin (secure_storage, image_picker, dll.) butuh NDK 27; NDK backward compatible
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

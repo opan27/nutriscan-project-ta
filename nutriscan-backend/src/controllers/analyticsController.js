@@ -1,12 +1,15 @@
 const db     = require('../config/db');
 const PDFKit = require('pdfkit');
+const { renderMealReport } = require('../services/pdfReportService');
 
 // GET /api/analytics/weekly
 const getWeeklyInsight = async (req, res) => {
   try {
     const [rows] = await db.query(
       `SELECT
-         DATE(logged_at)              AS date,
+         -- String 'YYYY-MM-DD', bukan objek Date: kalau Date, JSON mengubahnya ke UTC
+         -- sehingga di WIB tanggalnya mundur 1 hari (Senin tampil sebagai Minggu)
+         DATE_FORMAT(logged_at, '%Y-%m-%d') AS date,
          SUM(calories_consumed)       AS total_calories,
          SUM(carbs_consumed)          AS total_carbs,
          SUM(protein_consumed)        AS total_protein,
@@ -14,21 +17,28 @@ const getWeeklyInsight = async (req, res) => {
          SUM(sugar_consumed)          AS total_sugar,
          COUNT(*)                     AS meal_count
        FROM meal_logs
-       WHERE user_id = ? AND logged_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
-       GROUP BY DATE(logged_at)
+       WHERE user_id = ? AND logged_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
+       GROUP BY DATE_FORMAT(logged_at, '%Y-%m-%d')
        ORDER BY date ASC`,
       [req.user.id]
     );
 
-    // Bandingkan rata-rata minggu ini vs minggu lalu
+    // Minggu lalu = 7 hari sebelum minggu ini. Dihitung dengan cara yang SAMA:
+    // total per hari dulu, baru dirata-rata (bukan rata-rata per item makanan).
     const [prevWeek] = await db.query(
       `SELECT
-         AVG(calories_consumed) AS avg_cal,
-         AVG(sugar_consumed)    AS avg_sugar
-       FROM meal_logs
-       WHERE user_id = ?
-         AND logged_at BETWEEN DATE_SUB(CURDATE(), INTERVAL 14 DAY)
-                           AND DATE_SUB(CURDATE(), INTERVAL 8 DAY)`,
+         AVG(day_cal)   AS avg_cal,
+         AVG(day_sugar) AS avg_sugar
+       FROM (
+         SELECT DATE(logged_at)     AS d,
+                SUM(calories_consumed) AS day_cal,
+                SUM(sugar_consumed)    AS day_sugar
+         FROM meal_logs
+         WHERE user_id = ?
+           AND logged_at >= DATE_SUB(CURDATE(), INTERVAL 13 DAY)
+           AND logged_at <  DATE_SUB(CURDATE(), INTERVAL 6 DAY)
+         GROUP BY DATE(logged_at)
+       ) t`,
       [req.user.id]
     );
 
@@ -72,92 +82,56 @@ const getWeeklyInsight = async (req, res) => {
 
 // GET /api/analytics/export-pdf
 const exportPDF = async (req, res) => {
-  const days = parseInt(req.query.days) || 7;
+  const days = Math.min(Math.max(parseInt(req.query.days) || 7, 1), 365);
 
   try {
-    const [userRows] = await db.query('SELECT name, email FROM users WHERE id = ?', [req.user.id]);
-    const user = userRows[0];
+    const [[user]] = await db.query('SELECT name, email FROM users WHERE id = ?', [req.user.id]);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User tidak ditemukan' });
+    }
 
+    // Periode = `days` hari kalender terakhir, termasuk hari ini (urut kronologis)
     const [logs] = await db.query(
       `SELECT ml.*, f.name AS food_name, f.category
        FROM meal_logs ml
        JOIN foods f ON ml.food_id = f.id
-       WHERE ml.user_id = ? AND ml.logged_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
-       ORDER BY ml.logged_at DESC`,
-      [req.user.id, days]
+       WHERE ml.user_id = ? AND ml.logged_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+       ORDER BY ml.logged_at ASC`,
+      [req.user.id, days - 1]
     );
 
-    const [profile] = await db.query(
-      'SELECT * FROM health_profiles WHERE user_id = ?',
+    const [[profile]] = await db.query('SELECT * FROM health_profiles WHERE user_id = ?', [req.user.id]);
+    const [[recommendation]] = await db.query(
+      'SELECT max_sugar_g FROM recommendations WHERE user_id = ?',
       [req.user.id]
-    );
+    ).catch(() => [[undefined]]); // tabel lama mungkin belum ada → pakai default
 
-    // Generate PDF
-    const doc = new PDFKit({ margin: 50, size: 'A4' });
-
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename=nutriscan-report-${Date.now()}.pdf`);
-    doc.pipe(res);
-
-    // Header
-    doc.fontSize(22).font('Helvetica-Bold').text('NutriScan', { align: 'center' });
-    doc.fontSize(14).font('Helvetica').text('Laporan Riwayat Makan', { align: 'center' });
-    doc.moveDown();
-    doc.fontSize(11).text(`Nama  : ${user.name}`);
-    doc.text(`Email : ${user.email}`);
-    doc.text(`Periode: ${days} hari terakhir`);
-    doc.text(`Dicetak: ${new Date().toLocaleDateString('id-ID', { dateStyle: 'long' })}`);
-
-    if (profile.length > 0) {
-      const p = profile[0];
-      doc.moveDown();
-      doc.font('Helvetica-Bold').text('Profil Kesehatan:');
-      doc.font('Helvetica')
-         .text(`BMI: ${p.bmi} (${p.bmi < 18.5 ? 'Kurus' : p.bmi < 25 ? 'Normal' : 'Kegemukan'})`)
-         .text(`Target Kalori Harian: ${p.daily_calorie_target} kkal`)
-         .text(`Kondisi Medis: ${p.medical_condition || 'Tidak ada'}`);
-    }
-
-    doc.moveDown();
-    doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke();
-    doc.moveDown();
-
-    // Table header
-    doc.font('Helvetica-Bold').fontSize(10);
-    doc.text('Tanggal',    50,  doc.y, { width: 90 });
-    doc.text('Makanan',    140, doc.y - 12, { width: 130 });
-    doc.text('Jenis',      270, doc.y - 12, { width: 70 });
-    doc.text('Porsi (g)',  340, doc.y - 12, { width: 60 });
-    doc.text('Kalori',     400, doc.y - 12, { width: 60 });
-    doc.text('Gula (g)',   460, doc.y - 12, { width: 60 });
-    doc.moveDown(0.3);
-    doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke();
-    doc.moveDown(0.3);
-
-    // Table rows
-    doc.font('Helvetica').fontSize(9);
-    logs.forEach((log) => {
-      if (doc.y > 700) doc.addPage();
-      const date = new Date(log.logged_at).toLocaleDateString('id-ID');
-      const y = doc.y;
-      doc.text(date,                    50,  y, { width: 90 });
-      doc.text(log.food_name,           140, y, { width: 130 });
-      doc.text(log.meal_type,           270, y, { width: 70 });
-      doc.text(`${log.portion_g}g`,     340, y, { width: 60 });
-      doc.text(`${log.calories_consumed} kkal`, 400, y, { width: 60 });
-      doc.text(`${log.sugar_consumed}g`, 460, y, { width: 60 });
-      doc.moveDown(0.6);
+    // Render ke buffer dulu: kalau gagal di tengah, user dapat JSON error, bukan PDF rusak
+    const doc = new PDFKit({
+      size: 'A4',
+      margin: 40,
+      bufferPages: true, // perlu untuk footer "Halaman x dari y"
+      info: { Title: 'Laporan Riwayat Makan - NutriScan', Author: 'NutriScan' },
+    });
+    const chunks = [];
+    doc.on('data', (c) => chunks.push(c));
+    const done = new Promise((resolve, reject) => {
+      doc.on('end', resolve);
+      doc.on('error', reject);
     });
 
-    doc.moveDown();
-    doc.font('Helvetica-BoldOblique').fontSize(9)
-       .text('Laporan ini dibuat otomatis oleh aplikasi NutriScan. Konsultasikan dengan dokter untuk saran medis.', {
-         align: 'center', color: 'gray'
-       });
-
+    renderMealReport(doc, { user, profile, recommendation, logs, days });
     doc.end();
+    await done;
+
+    const pdf = Buffer.concat(chunks);
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Length', pdf.length);
+    res.setHeader('Content-Disposition', `inline; filename="laporan-nutriscan-${stamp}.pdf"`);
+    return res.end(pdf);
   } catch (err) {
-    console.error(err);
+    console.error('exportPDF error:', err);
     return res.status(500).json({ success: false, message: 'Gagal membuat PDF' });
   }
 };

@@ -24,20 +24,37 @@ class _ReminderScreenState extends State<ReminderScreen> {
     setState(() => _loading = true);
     try {
       final res = await _client.get(ApiConstants.reminder);
+      if (!mounted) return;
       setState(() { _reminders = List<Map<String, dynamic>>.from(res.data['data']); _loading = false; });
-    } catch (_) {
+    } catch (e) {
+      if (!mounted) return;
       setState(() => _loading = false);
+      _showError(ApiClient.errorMessage(e, 'Gagal memuat pengingat'));
     }
   }
 
   Future<void> _toggle(int id) async {
-    await _client.put('${ApiConstants.reminder}/$id/toggle');
-    _load();
+    try {
+      await _client.put('${ApiConstants.reminder}/$id/toggle');
+    } catch (e) {
+      if (mounted) _showError(ApiClient.errorMessage(e, 'Gagal mengubah pengingat'));
+    }
+    if (mounted) _load();
   }
 
   Future<void> _delete(int id) async {
-    await _client.delete('${ApiConstants.reminder}/$id');
-    _load();
+    try {
+      await _client.delete('${ApiConstants.reminder}/$id');
+    } catch (e) {
+      if (mounted) _showError(ApiClient.errorMessage(e, 'Gagal menghapus pengingat'));
+    }
+    if (mounted) _load();
+  }
+
+  void _showError(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), backgroundColor: AppColors.red),
+    );
   }
 
   Future<void> _showAddSheet() async {
@@ -116,7 +133,7 @@ class _ReminderScreenState extends State<ReminderScreen> {
               trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                 Switch(
                   value:          r['is_active'] == 1,
-                  activeThumbColor:    AppColors.primary,
+                  activeColor: AppColors.primary,
                   onChanged:      (_) => _toggle(r['id'] as int),
                 ),
                 IconButton(
@@ -162,8 +179,15 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
         'time':  timeStr,
       });
       if (mounted) Navigator.pop(context, true);
-    } catch (_) {
+    } catch (e) {
+      if (!mounted) return;
       setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(ApiClient.errorMessage(e, 'Gagal menyimpan pengingat')),
+          backgroundColor: AppColors.red,
+        ),
+      );
     }
   }
 

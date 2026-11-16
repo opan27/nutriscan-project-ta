@@ -74,6 +74,18 @@ const RECOMMENDATION_RULES = [
 
 // ─── Knowledge Base: Rule untuk Olahraga ─────────────────────
 const EXERCISE_RULES = [
+  // E_COMBO harus dicek PERTAMA: kalau tidak, pasien DM+HT yang sedentary/obesitas
+  // akan tertangkap rule DM saja dan tidak pernah mendapat rekomendasi kombinasi.
+  {
+    id: 'E_COMBO',
+    condition: (f) => f.conditions.includes('diabetes') && f.conditions.includes('hypertension'),
+    action: {
+      exercise_type: 'Jalan kaki santai atau senam ringan',
+      exercise_duration_min: 30,
+      exercise_freq: '5x per minggu (150 menit/minggu)',
+      exercise_notes: 'Kombinasi kondisi DM dan Hipertensi — mulai perlahan, pantau tekanan darah dan gula darah sebelum dan sesudah. Wajib konsultasi dokter untuk program olahraga.',
+    },
+  },
   {
     id: 'E_DM_SEDENTARY',
     condition: (f) => f.conditions.includes('diabetes') && f.activity_level === 'sedentary' && f.bmi < 30,
@@ -102,16 +114,6 @@ const EXERCISE_RULES = [
       exercise_duration_min: 30,
       exercise_freq: '5x per minggu',
       exercise_notes: 'Hindari olahraga isometrik (angkat beban berat). Ukur tekanan darah sebelum berolahraga. Hentikan jika kepala pusing atau nyeri dada.',
-    },
-  },
-  {
-    id: 'E_COMBO',
-    condition: (f) => f.conditions.includes('diabetes') && f.conditions.includes('hypertension'),
-    action: {
-      exercise_type: 'Jalan kaki santai atau senam ringan',
-      exercise_duration_min: 30,
-      exercise_freq: '5x per minggu (150 menit/minggu)',
-      exercise_notes: 'Kombinasi kondisi DM dan Hipertensi — mulai perlahan, pantau tekanan darah dan gula darah sebelum dan sesudah. Wajib konsultasi dokter untuk program olahraga.',
     },
   },
   {

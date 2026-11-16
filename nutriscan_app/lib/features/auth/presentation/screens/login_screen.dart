@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../data/auth_repository.dart';
+import '../../../../core/api/api_client.dart';
 import '../../../../core/theme/app_theme.dart';
 
 final _authRepo = AuthRepository();
@@ -39,9 +40,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         email:    _emailCtrl.text.trim(),
         password: _passCtrl.text,
       );
-      if (mounted) context.go('/home');
+      // User yang belum menyelesaikan onboarding harus mengisi profil dulu
+      final done = await _authRepo.isOnboardingCompleted();
+      if (mounted) context.go(done ? '/home' : '/onboarding');
     } catch (e) {
-      setState(() { _error = 'Email atau password salah'; });
+      if (mounted) {
+        setState(() {
+          _error = ApiClient.errorMessage(e, 'Email atau password salah');
+        });
+      }
     } finally {
       if (mounted) setState(() { _loading = false; });
     }

@@ -84,15 +84,24 @@ const updateFood = async (req, res) => {
 const deleteFood = async (req, res) => {
   const { id } = req.params;
   const force  = req.query.force === 'true';
+  let conn;
   try {
+    // Transaksi: kalau hapus makanan gagal, meal_logs tidak ikut terhapus
+    conn = await db.getConnection();
+    await conn.beginTransaction();
     if (force) {
       // Hapus paksa: bersihkan referensi dulu (meal_logs) lalu makanannya
-      await db.query('DELETE FROM meal_logs WHERE food_id = ?', [id]);
+      await conn.query('DELETE FROM meal_logs WHERE food_id = ?', [id]);
       // scan_history.food_id sudah ON DELETE SET NULL, jadi aman
     }
-    await db.query('DELETE FROM foods WHERE id = ?', [id]);
+    const [result] = await conn.query('DELETE FROM foods WHERE id = ?', [id]);
+    await conn.commit();
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ success: false, message: 'Makanan tidak ditemukan' });
+    }
     return res.json({ success: true, message: 'Makanan dihapus' });
   } catch (err) {
+    if (conn) await conn.rollback().catch(() => {});
     // FK constraint: makanan masih dipakai di meal_logs
     if (err.code === 'ER_ROW_IS_REFERENCED_2' || err.errno === 1451) {
       const [[used]] = await db.query('SELECT COUNT(*) c FROM meal_logs WHERE food_id = ?', [id]);
@@ -104,6 +113,8 @@ const deleteFood = async (req, res) => {
     }
     console.error('deleteFood error:', err);
     return res.status(500).json({ success: false, message: 'Server error' });
+  } finally {
+    if (conn) conn.release();
   }
 };
 

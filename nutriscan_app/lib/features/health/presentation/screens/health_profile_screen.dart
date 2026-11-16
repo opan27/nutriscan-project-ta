@@ -198,7 +198,7 @@ class _HealthProfileScreenState extends State<HealthProfileScreen> {
                     _sectionTitle('Tingkat Aktivitas'),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
-                      initialValue: _activity,
+                      value: _activity,
                       decoration:
                           const InputDecoration(labelText: 'Pilih aktivitas'),
                       items: _activityLabels.entries

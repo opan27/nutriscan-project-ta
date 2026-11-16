@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS users (
   email       VARCHAR(150) NOT NULL UNIQUE,
   password    VARCHAR(255) NOT NULL,
   role        ENUM('user', 'admin') DEFAULT 'user',
+  onboarding_completed TINYINT(1) NOT NULL DEFAULT 0,
   created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
@@ -34,7 +35,34 @@ CREATE TABLE IF NOT EXISTS health_profiles (
   bmi                  DECIMAL(5,2),
   bmr                  DECIMAL(7,2),
   daily_calorie_target DECIMAL(7,2),
+  blood_sugar_fasting      DECIMAL(6,2) NULL COMMENT 'mg/dL',
+  blood_pressure_systolic  SMALLINT UNSIGNED NULL COMMENT 'mmHg',
+  blood_pressure_diastolic SMALLINT UNSIGNED NULL COMMENT 'mmHg',
   updated_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- ----------------------------------------
+-- Tabel: recommendations (hasil forward chaining, 1 baris per user)
+-- ----------------------------------------
+CREATE TABLE IF NOT EXISTS recommendations (
+  id                    INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id               INT UNSIGNED NOT NULL UNIQUE,
+  allowed_foods         TEXT COMMENT 'JSON array',
+  avoided_foods         TEXT COMMENT 'JSON array',
+  meal_pattern          VARCHAR(255),
+  daily_calories        DECIMAL(7,2),
+  max_sugar_g           DECIMAL(6,2),
+  max_sodium_mg         DECIMAL(7,2),
+  max_carbs_g           DECIMAL(6,2),
+  min_protein_g         DECIMAL(6,2),
+  max_fat_g             DECIMAL(6,2),
+  exercise_type         VARCHAR(150),
+  exercise_duration_min SMALLINT UNSIGNED,
+  exercise_freq         VARCHAR(100),
+  exercise_notes        TEXT,
+  fired_rules           TEXT COMMENT 'JSON array',
+  generated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 

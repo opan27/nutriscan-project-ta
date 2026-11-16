@@ -1,5 +1,6 @@
 // lib/features/home/presentation/screens/home_screen.dart
 
+import 'package:dio/dio.dart' show Response;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -39,17 +40,26 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadData() async {
     try {
-      final responses = await Future.wait([
+      // Profil boleh belum ada (404) → jangan sampai menggagalkan request lain
+      Future<Response?> profileReq() async {
+        try {
+          return await _client.get(ApiConstants.healthProfile);
+        } catch (_) {
+          return null;
+        }
+      }
+
+      final responses = await Future.wait<Response?>([
         _client.get(ApiConstants.me),
         _client.get(ApiConstants.mealLogToday),
-        _client.get(ApiConstants.healthProfile).catchError((_) => null),
+        profileReq(),
       ]);
 
       if (mounted) {
         setState(() {
-          _userName = responses[0].data['data']['name']?.toString() ?? '';
-          _todayLog = responses[1].data['data'] as Map<String, dynamic>?;
-          _profile = responses[2].data['data'] as Map<String, dynamic>?;
+          _userName = responses[0]?.data['data']['name']?.toString() ?? '';
+          _todayLog = responses[1]?.data['data'] as Map<String, dynamic>?;
+          _profile = responses[2]?.data['data'] as Map<String, dynamic>?;
           _loading = false;
         });
       }

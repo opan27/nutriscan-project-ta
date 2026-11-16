@@ -1,7 +1,6 @@
 // lib/features/meal_log/presentation/screens/meal_log_screen.dart
 
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import '../../../../core/api/api_client.dart';
 import '../../../../core/constants/api_constants.dart';
 import '../../../../core/theme/app_theme.dart';
@@ -35,18 +34,31 @@ class _MealLogScreenState extends State<MealLogScreen> {
     setState(() => _loading = true);
     try {
       final res = await _client.get(ApiConstants.mealLogToday);
+      if (!mounted) return;
       setState(() {
         _todayData = res.data['data'];
         _loading = false;
       });
-    } catch (_) {
+    } catch (e) {
+      if (!mounted) return;
       setState(() => _loading = false);
+      _showError(ApiClient.errorMessage(e, 'Gagal memuat log makan'));
     }
   }
 
   Future<void> _deleteLog(int id) async {
-    await _client.delete('${ApiConstants.mealLog}/$id');
-    _loadToday();
+    try {
+      await _client.delete('${ApiConstants.mealLog}/$id');
+    } catch (e) {
+      if (mounted) _showError(ApiClient.errorMessage(e, 'Gagal menghapus log'));
+    }
+    if (mounted) _loadToday();
+  }
+
+  void _showError(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), backgroundColor: AppColors.red),
+    );
   }
 
   Future<void> _showAddDialog() async {
@@ -277,28 +289,63 @@ class _AddMealSheetState extends State<_AddMealSheet> {
   String _mealType = 'breakfast';
   bool _loading = false;
 
+  // Nomor urut request pencarian: respons lama yang datang terlambat diabaikan
+  int _searchSeq = 0;
+  String? _formError;
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    _portionCtrl.dispose();
+    super.dispose();
+  }
+
   Future<void> _search(String q) async {
-    if (q.length < 2) {
+    final seq = ++_searchSeq;
+    // Teks diubah setelah memilih → pilihan lama tidak berlaku lagi
+    if (_selected != null && q != _selected!['name']) {
+      setState(() => _selected = null);
+    }
+    if (q.trim().length < 2) {
       setState(() => _searchResults = []);
       return;
     }
-    final res = await _client.get(ApiConstants.foodSearch, params: {'q': q});
-    setState(() => _searchResults =
-        List<Map<String, dynamic>>.from(res.data['data'] ?? []));
+    try {
+      final res =
+          await _client.get(ApiConstants.foodSearch, params: {'q': q.trim()});
+      if (!mounted || seq != _searchSeq) return;
+      setState(() => _searchResults =
+          List<Map<String, dynamic>>.from(res.data['data'] ?? []));
+    } catch (_) {
+      if (!mounted || seq != _searchSeq) return;
+      setState(() => _searchResults = []);
+    }
   }
 
   Future<void> _save() async {
     if (_selected == null) return;
-    setState(() => _loading = true);
+    final portion = double.tryParse(_portionCtrl.text.replaceAll(',', '.'));
+    if (portion == null || portion <= 0 || portion > 5000) {
+      setState(() => _formError = 'Porsi harus antara 1 dan 5000 gram');
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _formError = null;
+    });
     try {
       await _client.post(ApiConstants.mealLog, data: {
         'food_id': _selected!['id'],
         'meal_type': _mealType,
-        'portion_g': double.tryParse(_portionCtrl.text) ?? 100,
+        'portion_g': portion,
       });
       if (mounted) Navigator.pop(context, true);
-    } catch (_) {
-      setState(() => _loading = false);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _formError = ApiClient.errorMessage(e, 'Gagal menyimpan. Coba lagi.');
+      });
     }
   }
 
@@ -363,7 +410,7 @@ class _AddMealSheetState extends State<_AddMealSheet> {
             const SizedBox(height: 16),
             // Meal type picker
             DropdownButtonFormField<String>(
-              initialValue: _mealType,
+              value: _mealType,
               decoration: const InputDecoration(labelText: 'Jenis Makan'),
               items: const [
                 DropdownMenuItem(value: 'breakfast', child: Text('Sarapan')),
@@ -382,6 +429,12 @@ class _AddMealSheetState extends State<_AddMealSheet> {
                 suffixText: 'g',
               ),
             ),
+          ],
+
+          if (_formError != null) ...[
+            const SizedBox(height: 12),
+            Text(_formError!,
+                style: const TextStyle(color: AppColors.red, fontSize: 13)),
           ],
 
           const SizedBox(height: 20),

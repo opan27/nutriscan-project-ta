@@ -198,6 +198,9 @@ const uploadAndScan = async (req, res) => {
 
         total_objects: detectedFoods.length,
 
+        // Waktu inferensi model di AI service (ms), untuk analisis waktu respons
+        inference_ms: result.inference_ms ?? null,
+
         foods: detectedFoods,
 
         total_nutrition: {
@@ -244,12 +247,18 @@ const submitFeedback = async (req, res) => {
   const { actual_label, is_correct } = req.body;
 
   try {
-    await db.query(
-      `UPDATE model_accuracy_logs
-       SET actual_label = ?, is_correct = ?
-       WHERE scan_id = ?`,
-      [actual_label, is_correct ? 1 : 0, scanId]
+    // Hanya pemilik scan yang boleh memberi feedback (cegah IDOR),
+    // dan jangan timpa hasil verifikasi admin (verdict).
+    const [result] = await db.query(
+      `UPDATE model_accuracy_logs mal
+       JOIN scan_history sh ON mal.scan_id = sh.id
+       SET mal.actual_label = ?, mal.is_correct = ?
+       WHERE mal.scan_id = ? AND sh.user_id = ? AND mal.verdict IS NULL`,
+      [actual_label || null, is_correct ? 1 : 0, scanId, req.user.id]
     );
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ success: false, message: 'Scan tidak ditemukan atau sudah diverifikasi' });
+    }
     return res.json({ success: true, message: 'Feedback disimpan, terima kasih!' });
   } catch (err) {
     return res.status(500).json({ success: false, message: 'Server error' });

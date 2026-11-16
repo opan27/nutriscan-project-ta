@@ -4,10 +4,18 @@ const db     = require('../config/db');
 
 // POST /api/auth/register
 const register = async (req, res) => {
-  const { name, email, password } = req.body;
+  const name     = String(req.body.name || '').trim();
+  const email    = String(req.body.email || '').trim().toLowerCase();
+  const password = String(req.body.password || '');
 
   if (!name || !email || !password) {
     return res.status(400).json({ success: false, message: 'Semua field wajib diisi' });
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ success: false, message: 'Format email tidak valid' });
+  }
+  if (password.length < 6) {
+    return res.status(400).json({ success: false, message: 'Password minimal 6 karakter' });
   }
 
   try {
@@ -35,6 +43,10 @@ const register = async (req, res) => {
       data: { id: result.insertId, name, email, token },
     });
   } catch (err) {
+    // Dua request register bersamaan dengan email sama → UNIQUE constraint
+    if (err.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ success: false, message: 'Email sudah terdaftar' });
+    }
     console.error('Register error:', err);
     return res.status(500).json({ success: false, message: 'Server error' });
   }
@@ -42,7 +54,8 @@ const register = async (req, res) => {
 
 // POST /api/auth/login
 const login = async (req, res) => {
-  const { email, password } = req.body;
+  const email    = String(req.body.email || '').trim().toLowerCase();
+  const password = String(req.body.password || '');
 
   if (!email || !password) {
     return res.status(400).json({ success: false, message: 'Email dan password wajib diisi' });

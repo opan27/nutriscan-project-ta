@@ -3,6 +3,8 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:path_provider/path_provider.dart';
 import '../../../../core/api/api_client.dart';
 import '../../../../core/constants/api_constants.dart';
 import '../../../../core/theme/app_theme.dart';
@@ -30,33 +32,53 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     setState(() => _loading = true);
     try {
       final res = await _client.get(ApiConstants.weeklyInsight);
+      if (!mounted) return;
       setState(() {
         _data = res.data['data'];
         _loading = false;
       });
     } catch (_) {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 
-  Future<void> _exportPdf() async {
+  /// Unduh laporan PDF dari backend lalu buka dengan aplikasi PDF di HP
+  Future<void> _exportPdf(int days) async {
     setState(() => _exporting = true);
     try {
-      // Untuk Android, kita hanya tampilkan snackbar — PDF di-download via browser
-      // Pada implementasi nyata: gunakan flutter_downloader atau dio untuk simpan file
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-                'PDF sedang disiapkan... Buka di browser: /api/analytics/export-pdf'),
-            backgroundColor: AppColors.primary,
-            duration: Duration(seconds: 4),
-          ),
+      final dir = await getTemporaryDirectory();
+      final stamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+      final path = '${dir.path}/laporan-nutriscan-$stamp.pdf';
+
+      await _client.download(ApiConstants.exportPdf, path,
+          params: {'days': days});
+
+      final result = await OpenFilex.open(path, type: 'application/pdf');
+      if (result.type != ResultType.done && mounted) {
+        _showSnack(
+          result.type == ResultType.noAppToOpen
+              ? 'Tidak ada aplikasi pembuka PDF di HP ini. Install Google Drive / PDF Reader.'
+              : 'Gagal membuka PDF: ${result.message}',
+          isError: true,
         );
       }
+    } catch (e) {
+      if (mounted) {
+        _showSnack(ApiClient.errorMessage(e, 'Gagal membuat laporan PDF'),
+            isError: true);
+      }
     } finally {
-      setState(() => _exporting = false);
+      if (mounted) setState(() => _exporting = false);
     }
+  }
+
+  void _showSnack(String msg, {bool isError = false}) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(msg),
+        backgroundColor: isError ? AppColors.red : AppColors.primary,
+      ));
   }
 
   @override
@@ -65,19 +87,40 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       appBar: AppBar(
         title: const Text('Analitik Mingguan'),
         actions: [
-          TextButton.icon(
-            onPressed: _exporting ? null : _exportPdf,
-            icon: _exporting
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
+          if (_exporting)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 20),
+              child: Center(
+                child: SizedBox(
+                    width: 18,
+                    height: 18,
                     child: CircularProgressIndicator(
-                        strokeWidth: 2, color: AppColors.primary))
-                : const Icon(Icons.picture_as_pdf_outlined,
-                    color: AppColors.primary, size: 20),
-            label:
-                const Text('PDF', style: TextStyle(color: AppColors.primary)),
-          ),
+                        strokeWidth: 2, color: AppColors.primary)),
+              ),
+            )
+          else
+            // Pilih periode laporan
+            PopupMenuButton<int>(
+              tooltip: 'Unduh laporan PDF',
+              onSelected: _exportPdf,
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 7, child: Text('Laporan 7 hari')),
+                PopupMenuItem(value: 14, child: Text('Laporan 14 hari')),
+                PopupMenuItem(value: 30, child: Text('Laporan 30 hari')),
+              ],
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                child: Row(children: [
+                  Icon(Icons.picture_as_pdf_outlined,
+                      color: AppColors.primary, size: 20),
+                  SizedBox(width: 6),
+                  Text('PDF',
+                      style: TextStyle(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w500)),
+                ]),
+              ),
+            ),
         ],
       ),
       body: _loading

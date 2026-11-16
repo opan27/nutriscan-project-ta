@@ -36,6 +36,18 @@ class AuthRepository {
     return user;
   }
 
+  /// Cek apakah user sudah menyelesaikan onboarding (profil kesehatan).
+  /// Jika gagal dicek (mis. server error), anggap sudah agar user tidak terkunci.
+  Future<bool> isOnboardingCompleted() async {
+    try {
+      final res = await _client.get(ApiConstants.onboardingStatus);
+      final data = res.data['data'] as Map<String, dynamic>?;
+      return data?['onboarding_completed'] as bool? ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
   Future<void> logout() async {
     await _storage.delete(key: 'jwt_token');
   }

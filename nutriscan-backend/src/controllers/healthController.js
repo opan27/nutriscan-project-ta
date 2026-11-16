@@ -22,20 +22,41 @@ const upsertProfile = async (req, res) => {
                                    ? parseInt(req.body.blood_pressure_diastolic)
                                    : null;
 
-  // Validasi wajib
-  if (!weight_kg || !height_cm || !age || !gender) {
-    return res.status(400).json({ success: false, message: 'Data fisik tidak lengkap' });
-  }
+  // `field` dipakai aplikasi untuk membuka halaman onboarding yang salah
+  const bad = (field, message) => res.status(400).json({ success: false, field, message });
 
-  // Validasi range wajar
-  if (height_cm < 50 || height_cm > 300) {
-    return res.status(400).json({ success: false, message: `Tinggi badan tidak valid: ${height_cm} cm` });
+  // Validasi wajib + range wajar
+  if (!Number.isFinite(weight_kg) || weight_kg < 10 || weight_kg > 500) {
+    return bad('weight_kg', 'Berat badan harus antara 10 dan 500 kg');
   }
-  if (weight_kg < 10 || weight_kg > 500) {
-    return res.status(400).json({ success: false, message: `Berat badan tidak valid: ${weight_kg} kg` });
+  if (!Number.isFinite(height_cm) || height_cm < 50 || height_cm > 300) {
+    return bad('height_cm', 'Tinggi badan harus antara 50 dan 300 cm (isi dalam cm, mis. 165)');
   }
-  if (age < 1 || age > 120) {
-    return res.status(400).json({ success: false, message: `Usia tidak valid: ${age} tahun` });
+  if (!Number.isInteger(age) || age < 1 || age > 120) {
+    return bad('age', 'Usia harus antara 1 dan 120 tahun');
+  }
+  if (!['male', 'female'].includes(gender)) {
+    return bad('gender', 'Jenis kelamin wajib dipilih');
+  }
+  if (!['sedentary', 'light', 'moderate', 'active', 'very_active'].includes(activity_level)) {
+    return bad('activity_level', 'Tingkat aktivitas tidak valid');
+  }
+  const VALID_CONDITIONS = ['none', 'diabetes', 'hypertension', 'cholesterol', 'kidney'];
+  const condList = String(medical_condition).split(',').map((c) => c.trim()).filter(Boolean);
+  if (condList.length === 0 || condList.some((c) => !VALID_CONDITIONS.includes(c))) {
+    return bad('medical_condition', 'Kondisi medis tidak valid');
+  }
+  if (blood_sugar_fasting !== null &&
+      (!Number.isFinite(blood_sugar_fasting) || blood_sugar_fasting < 20 || blood_sugar_fasting > 600)) {
+    return bad('blood_sugar_fasting', 'Gula darah puasa harus antara 20 dan 600 mg/dL');
+  }
+  if (blood_pressure_systolic !== null &&
+      (!Number.isInteger(blood_pressure_systolic) || blood_pressure_systolic < 50 || blood_pressure_systolic > 300)) {
+    return bad('blood_pressure_systolic', 'Tekanan darah sistolik harus antara 50 dan 300 mmHg');
+  }
+  if (blood_pressure_diastolic !== null &&
+      (!Number.isInteger(blood_pressure_diastolic) || blood_pressure_diastolic < 30 || blood_pressure_diastolic > 200)) {
+    return bad('blood_pressure_diastolic', 'Tekanan darah diastolik harus antara 30 dan 200 mmHg');
   }
 
   try {
@@ -143,8 +164,12 @@ const upsertProfile = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ success: false, message: 'Server error: ' + err.message });
+    // Detail error SQL hanya di log server, jangan dikirim ke user
+    console.error('upsertProfile error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Gagal menyimpan profil karena kesalahan server. Coba lagi nanti.',
+    });
   }
 };
 

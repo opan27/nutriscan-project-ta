@@ -1,10 +1,12 @@
 // lib/features/onboarding/presentation/screens/onboarding_screen.dart
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/api/api_client.dart';
 import '../../../../core/constants/api_constants.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/health_validators.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
@@ -38,6 +40,20 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   final _totalPages = 8;
 
+  // Index halaman (dipakai untuk loncat ke halaman yang salah)
+  static const _pageWeight = 1;
+  static const _pageHeight = 2;
+  static const _pageAge = 3;
+  static const _pageHealthData = 7;
+
+  // ── Parsing & validasi: lihat core/utils/health_validators.dart ──
+  static double? _parseNum(String v) => HealthValidators.parseNum(v);
+  static String? _weightError(String v) => HealthValidators.weight(v);
+  static String? _heightError(String v) => HealthValidators.height(v);
+  static String? _ageError(String v) => HealthValidators.age(v);
+  static String? _sugarError(String v) => HealthValidators.bloodSugar(v);
+  static String? _bpError(String v) => HealthValidators.systolic(v);
+
   @override
   void dispose() {
     _pageCtrl.dispose();
@@ -65,7 +81,27 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
   }
 
+  void _goToPage(int page) {
+    _pageCtrl.animateToPage(page,
+        duration: const Duration(milliseconds: 350), curve: Curves.easeInOut);
+  }
+
   Future<void> _saveAndFinish() async {
+    // Cek ulang semua data wajib sebelum kirim; kalau ada yang salah, buka halamannya
+    final checks = <int, String?>{
+      _pageWeight: _weight == null ? 'Berat badan wajib diisi' : _weightError(_weightCtrl.text),
+      _pageHeight: _height == null ? 'Tinggi badan wajib diisi' : _heightError(_heightCtrl.text),
+      _pageAge: _age == null ? 'Usia wajib diisi' : _ageError(_ageCtrl.text),
+      _pageHealthData: _sugarError(_sugarCtrl.text) ?? _bpError(_bpCtrl.text),
+    };
+    for (final entry in checks.entries) {
+      if (entry.value != null) {
+        _showError(entry.value!);
+        _goToPage(entry.key);
+        return;
+      }
+    }
+
     setState(() => _saving = true);
     try {
       await _client.post(ApiConstants.healthProfile, data: {
@@ -80,30 +116,60 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         'blood_pressure_systolic': _bpSystolic,
       });
       if (mounted) context.go('/home');
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('Gagal menyimpan: $e'),
-              backgroundColor: AppColors.red),
-        );
-      }
+    } on DioException catch (e) {
+      if (!mounted) return;
       setState(() => _saving = false);
+      _showError(ApiClient.errorMessage(e, 'Gagal menyimpan data. Coba lagi.'));
+      // Server memberi tahu field mana yang salah → buka halamannya
+      final data = e.response?.data;
+      final field = data is Map ? data['field'] : null;
+      const fieldToPage = {
+        'weight_kg': _pageWeight,
+        'height_cm': _pageHeight,
+        'age': _pageAge,
+        'gender': 4,
+        'activity_level': 5,
+        'medical_condition': 6,
+        'blood_sugar_fasting': _pageHealthData,
+        'blood_pressure_systolic': _pageHealthData,
+      };
+      if (fieldToPage[field] != null) _goToPage(fieldToPage[field]!);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      _showError('Gagal menyimpan data. Coba lagi.');
     }
+  }
+
+  void _showError(String msg) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(msg),
+        backgroundColor: AppColors.red,
+        behavior: SnackBarBehavior.floating,
+      ));
   }
 
   bool _canNext() {
     switch (_currentPage) {
-      case 1:
-        return _weight != null && _weight! > 0;
-      case 2:
-        return _height != null && _height! > 0;
-      case 3:
-        return _age != null && _age! > 0;
+      case _pageWeight:
+        return _weight != null && _weightError(_weightCtrl.text) == null;
+      case _pageHeight:
+        return _height != null && _heightError(_heightCtrl.text) == null;
+      case _pageAge:
+        return _age != null && _ageError(_ageCtrl.text) == null;
+      case _pageHealthData:
+        return _sugarError(_sugarCtrl.text) == null &&
+            _bpError(_bpCtrl.text) == null;
       default:
         return true;
     }
   }
+
+  /// Input angka saja (boleh titik/koma untuk desimal)
+  static final _decimalFormatter =
+      FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'));
 
   @override
   Widget build(BuildContext context) {
@@ -209,20 +275,24 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           TextField(
             controller: _weightCtrl,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [_decimalFormatter],
             textAlign: TextAlign.center,
             style: const TextStyle(
                 fontSize: 36,
                 fontWeight: FontWeight.w700,
                 color: AppColors.primary),
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               hintText: '65',
-              hintStyle: TextStyle(fontSize: 36, color: AppColors.border),
+              hintStyle: const TextStyle(fontSize: 36, color: AppColors.border),
               suffixText: 'kg',
               suffixStyle:
-                  TextStyle(fontSize: 20, color: AppColors.textSecondary),
+                  const TextStyle(fontSize: 20, color: AppColors.textSecondary),
               border: InputBorder.none,
+              helperText: 'Rentang 10–500 kg',
+              errorText: _weightError(_weightCtrl.text),
+              errorMaxLines: 2,
             ),
-            onChanged: (v) => setState(() => _weight = double.tryParse(v)),
+            onChanged: (v) => setState(() => _weight = _parseNum(v)),
           ),
         ]),
       );
@@ -236,20 +306,24 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         child: TextField(
           controller: _heightCtrl,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: [_decimalFormatter],
           textAlign: TextAlign.center,
           style: const TextStyle(
               fontSize: 36,
               fontWeight: FontWeight.w700,
               color: AppColors.primary),
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             hintText: '165',
-            hintStyle: TextStyle(fontSize: 36, color: AppColors.border),
+            hintStyle: const TextStyle(fontSize: 36, color: AppColors.border),
             suffixText: 'cm',
             suffixStyle:
-                TextStyle(fontSize: 20, color: AppColors.textSecondary),
+                const TextStyle(fontSize: 20, color: AppColors.textSecondary),
             border: InputBorder.none,
+            helperText: 'Dalam sentimeter, rentang 50–300 cm',
+            errorText: _heightError(_heightCtrl.text),
+            errorMaxLines: 2,
           ),
-          onChanged: (v) => setState(() => _height = double.tryParse(v)),
+          onChanged: (v) => setState(() => _height = _parseNum(v)),
         ),
       );
 
@@ -262,20 +336,24 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         child: TextField(
           controller: _ageCtrl,
           keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
           textAlign: TextAlign.center,
           style: const TextStyle(
               fontSize: 36,
               fontWeight: FontWeight.w700,
               color: AppColors.primary),
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             hintText: '45',
-            hintStyle: TextStyle(fontSize: 36, color: AppColors.border),
+            hintStyle: const TextStyle(fontSize: 36, color: AppColors.border),
             suffixText: 'tahun',
             suffixStyle:
-                TextStyle(fontSize: 20, color: AppColors.textSecondary),
+                const TextStyle(fontSize: 20, color: AppColors.textSecondary),
             border: InputBorder.none,
+            helperText: 'Rentang 1–120 tahun',
+            errorText: _ageError(_ageCtrl.text),
+            errorMaxLines: 2,
           ),
-          onChanged: (v) => setState(() => _age = int.tryParse(v)),
+          onChanged: (v) => setState(() => _age = int.tryParse(v.trim())),
         ),
       );
 
@@ -463,25 +541,33 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           TextField(
             controller: _sugarCtrl,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(
+            inputFormatters: [_decimalFormatter],
+            decoration: InputDecoration(
               labelText: 'Gula darah puasa terakhir',
               suffixText: 'mg/dL',
               hintText: 'contoh: 126',
-              prefixIcon: Icon(Icons.water_drop_outlined),
+              prefixIcon: const Icon(Icons.water_drop_outlined),
+              errorText: _sugarError(_sugarCtrl.text),
+              errorMaxLines: 2,
             ),
-            onChanged: (v) => setState(() => _bloodSugar = double.tryParse(v)),
+            onChanged: (v) => setState(() => _bloodSugar =
+                v.trim().isEmpty ? null : _parseNum(v)),
           ),
           const SizedBox(height: 16),
           TextField(
             controller: _bpCtrl,
             keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            decoration: InputDecoration(
               labelText: 'Tekanan darah sistolik terakhir',
               suffixText: 'mmHg',
               hintText: 'contoh: 140',
-              prefixIcon: Icon(Icons.favorite_outline),
+              prefixIcon: const Icon(Icons.favorite_outline),
+              errorText: _bpError(_bpCtrl.text),
+              errorMaxLines: 2,
             ),
-            onChanged: (v) => setState(() => _bpSystolic = int.tryParse(v)),
+            onChanged: (v) => setState(() => _bpSystolic =
+                v.trim().isEmpty ? null : int.tryParse(v.trim())),
           ),
           const SizedBox(height: 16),
           Container(
