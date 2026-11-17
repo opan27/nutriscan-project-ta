@@ -30,7 +30,7 @@ const uploadAndScan = async (req, res) => {
     if (detections.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Tidak ada makanan terdeteksi'
+        message: 'Makanan tidak dikenali atau belum tersedia di NutriScan. Pastikan foto jelas dan makanan termasuk jenis yang didukung.'
       });
     }
 

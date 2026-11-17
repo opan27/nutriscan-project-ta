@@ -32,6 +32,8 @@ services:
       dockerfile: Dockerfile.yolo
     container_name: nutriscan-yolo
     restart: always
+    environment:
+      CONF_THRESHOLD: "0.6"   # buang deteksi < 60% (objek di luar 11 kelas biasanya 30-55%)
     ports:
       - "127.0.0.1:5001:5001"   # AI service hanya diakses backend
     volumes:

@@ -2,15 +2,14 @@
 class ApiConstants {
   ApiConstants._();
 
-  // IP laptop BERUBAH setiap ganti jaringan Wi-Fi/hotspot.
-  // Cek IP laptop: jalankan `ipconfig` → "IPv4 Address" di adapter Wi-Fi.
-  // Bisa di-override tanpa edit file:
+  // Default: backend di VPS (production).
+  // Untuk development ke backend lokal, override tanpa edit file:
   //   flutter run --dart-define=API_BASE_URL=http://192.168.x.x:3000/api
-  // Emulator Android: http://10.0.2.2:3000/api
+  //   (cek IP laptop: `ipconfig` → "IPv4 Address"; emulator: http://10.0.2.2:3000/api)
   // Setelah ganti URL, WAJIB hot restart (R), bukan hot reload (r).
   static const String baseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://192.168.8.177:3000/api',
+    defaultValue: 'http://139.190.101.118:3000/api',
   );
 
   // Auth
